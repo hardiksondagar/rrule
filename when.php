@@ -1,0 +1,174 @@
+<?php
+/* Custom function for sorting date */
+function dateSort($a, $b) {
+    return date('N', strtotime($a)) - date('N', strtotime($b));
+}
+
+/*
+ * Repeatation
+ *      1. Daily
+ *      2. Periodically 'x' days after completion
+ *      3. Weekly
+ *          Options
+ *              a. Weekdays
+ *              b. Specific day(s)
+ *      4. Monthly
+ *          Options
+ *              a. on day of the month
+ *              b. on day of the week
+ *      5. Yearly
+ * 
+ */
+
+class RelativeDate {
+
+    public $AllowedRepeatations = array('daily', 'weekly', 'monthly', 'yearly');
+    public $dateFrom;
+    public $format = 'D, F jS, Y';
+    protected $frequency = 'daily';
+    protected $interval = 1;
+    protected $options = array(
+        'monthly' => array(
+            'repeatOn' => 'dayofthemonth'
+        ),
+        'weekly' => array(
+            'days' => array('Monday')
+        )
+    );
+
+    /* constructor set $this->dateFrom variable used as relative date to get next occurence of date in $this->next() 
+     * if null passed will set current date to $this->dateFrom
+     */
+
+    function __construct($dateFrom = null) {
+        $dateFrom = (is_null($dateFrom)) ? time() : strtotime($dateFrom);
+        $this->dateFrom = date($this->format, $dateFrom);
+    }
+
+    /* Returns the next n($index)th day according to recurring rule */
+
+    function next($index = 0) {
+
+        if ($index == 0) {
+            return $this->{$this->frequency . 'Next'}();
+        } else {
+            $this->dateFrom = $this->{$this->frequency . 'Next'}();
+            return $this->next( --$index);
+        }
+    }
+
+    /* Next nth day */
+
+    protected function dailyNext() {
+        return date($this->format, strtotime('+' . $this->interval . ' day ' . $this->dateFrom));
+    }
+
+    protected function weeklyNext() {
+        /* Find next day for repeatation
+         *      returns
+         *          'next day' if next day in same week
+         *           false if next day in different week
+         *  
+         */
+        $next_day = $this->nextDay($this->dateFrom, $this->options['weekly']['days']);
+        if ($next_day) {
+            /* Next day is in same week */
+            return date($this->format, strtotime('this week ' . $next_day . date('F jS, Y', strtotime($this->dateFrom))));
+        } else {
+            /* Next day is in next 'n'th week */
+            return date($this->format, strtotime('+' . $this->interval - 1 . 'week ' . $this->options[$this->frequency]['days'][0] . date('F jS, Y', strtotime($this->dateFrom))));
+        }
+    }
+
+    /* Returns
+     *      if next day is in the same week
+     *          $next_day
+     *      else 
+     *          false
+     */
+
+    protected function nextDay($dayFrom, $days) {
+        $N_dateFrom = date('N', strtotime($dayFrom));
+        foreach ($days as $key => $day) {
+            if ($N_dateFrom < date('N', strtotime($day))) {
+                return $day;
+            }
+        }
+        return false;
+    }
+
+    /* Returns next 'n'th months date
+     *         options
+     *              a.repeatOn same week
+     *              b.repeatOn same day
+     *              c.repeatOn first some day
+     */
+
+    protected function monthlyNext() {
+        $date = date($this->format, strtotime('+' . $this->interval . ' month ' . $this->dateFrom));
+        if ($this->options[$this->frequency]['repeatOn'] != 'dayoftheweek') {
+            $date = date($this->format, strtotime('Monday this week ' . date('F jS, Y', strtotime($date))));
+        }
+        return $date;
+    }
+
+    /* next nth years day */
+
+    protected function yearlyNext() {
+        return date($this->format, strtotime('+' . $this->interval . ' year ' . $this->dateFrom));
+    }
+
+    /* Initalization recurring rule
+     * 
+     * @param $frequency
+     * @param $options
+     * 
+     */
+
+    public function setRepeat($frequency = 'daily', $options = array()) {
+        /* check $frequency in allowedRepeatations */
+        if (in_array($frequency, $this->AllowedRepeatations)) {
+            $this->frequency = $frequency;
+
+            /* Set $this->options if set any */
+            if (!empty($options)) {
+                $this->options[$frequency] = array_merge($this->options[$frequency], $options);
+                /* On weekly repeatation rule sort and remove invalid days in $this->options[$frequency]['days'] for repeatation */
+                if ($frequency == 'weekly') {
+                    $this->options[$frequency]['days'] = array_unique($this->options[$frequency]['days']);
+                    /* Perform day sort , this will use dateSort custom function for comparision */
+                    usort($this->options[$frequency]['days'], "dateSort");
+                    foreach ($this->options[$frequency]['days'] as $key => $day) {
+                        /* Unset invalid days */
+                        if (!in_array($day, array('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'))) {
+                            unset($this->options[$frequency]['days'][$key]);
+                        }
+                    }
+                }
+            }
+        } else {
+            /* throw exception on invalid repeatation rule */
+            throw new Exception('Invalid repeatation');
+        }
+    }
+
+    /* Magic method for custom error on unknown method call */
+
+    public function __call($method, $args) {
+        echo "unknown method " . $method;
+        return false;
+    }
+
+}
+
+$RelativeDate = new RelativeDate();
+$options = array('Thursday', 'Friday', 'Monday');
+$repeatOn = 'weekly';
+$RelativeDate->setRepeat($repeatOn, array('days' => $options));
+
+echo $RelativeDate->dateFrom;
+echo '<br>';
+echo 'Repeat on ' . $repeatOn;
+echo '<br>';
+echo 'Next Repeat on : ' . $RelativeDate->next(10);
+
